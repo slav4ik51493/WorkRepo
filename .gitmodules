@@ -1,6 +1,6 @@
 [submodule ".claude/skills/enforce-code-review"]
 	path = .claude/skills/enforce-code-review
-	url = ../enforce-code-review
+	url = https://github.com/slav4ik51493/enforce-code-review.git
 [submodule ".claude/skills/write-unit-test"]
 	path = .claude/skills/write-unit-test
-	url = ../write-unit-test
+	url = https://github.com/slav4ik51493/write-unit-test.git
