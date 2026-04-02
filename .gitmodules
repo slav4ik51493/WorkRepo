@@ -1,0 +1,6 @@
+[submodule ".claude/skills/enforce-code-review"]
+	path = .claude/skills/enforce-code-review
+	url = ../enforce-code-review
+[submodule ".claude/skills/write-unit-test"]
+	path = .claude/skills/write-unit-test
+	url = ../write-unit-test
