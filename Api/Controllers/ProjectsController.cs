@@ -49,7 +49,8 @@ public sealed class ProjectsController : ControllerBase
 
         if (project is null)
         {
-            return this.NotFound(new { error = Constants.ErrorMessage.ProjectNotFound });
+            throw
+              new KeyNotFoundException(Constants.ErrorMessage.ProjectNotFound);
         }
 
         return this.Ok(ToResponse(project));
