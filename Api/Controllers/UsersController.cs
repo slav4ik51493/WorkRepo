@@ -1,8 +1,8 @@
-using Api.Data;
+using Microsoft.AspNetCore.Mvc;
+
 using Api.DTOs;
 using Api.Models;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using Api.Repositories.Abstractions;
 
 namespace Api.Controllers;
 
@@ -10,11 +10,11 @@ namespace Api.Controllers;
 [Route("v1/users")]
 public sealed class UsersController : ControllerBase
 {
-    private readonly AppDbContext database;
+    private readonly IUserRepository userRepository;
 
-    public UsersController(AppDbContext database)
+    public UsersController(IUserRepository userRepository)
     {
-        this.database = database;
+        this.userRepository = userRepository;
     }
 
     private static UserResponse ToResponse(User user)
@@ -30,22 +30,19 @@ public sealed class UsersController : ControllerBase
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var total = await this.database.Users.CountAsync();
-        var items = await this.database.Users
-            .OrderBy(user => user.Id)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(user => ToResponse(user))
-            .ToListAsync();
+        var result = await this.userRepository.GetPageAsync(page, pageSize);
 
-        return this.Ok(new PagedResponse<UserResponse>(items, page, pageSize, total));
+        return this.Ok(new PagedResponse<UserResponse>(
+            result.Items.Select(ToResponse).ToList(),
+            page,
+            pageSize,
+            result.Total));
     }
 
     [HttpGet("{id}/meow")]
     public async Task<ActionResult<UserResponse>> GetMeow(string id)
     {
-        var user = await this.database.Users
-            .FirstOrDefaultAsync(user => string.Equals(user.PublicId, id, StringComparison.Ordinal));
+        var user = await this.userRepository.FindByPublicIdAsync(id);
 
         if (user is null)
         {
@@ -66,8 +63,7 @@ public sealed class UsersController : ControllerBase
             return this.BadRequest(new { error = Constants.ErrorMessage.NameAndEmailRequired });
         }
 
-        var isEmailTaken = await this.database.Users
-            .AnyAsync(user => string.Equals(user.Email, request.Email, StringComparison.OrdinalIgnoreCase));
+        var isEmailTaken = await this.userRepository.IsEmailTakenAsync(request.Email);
 
         if (isEmailTaken)
         {
@@ -83,8 +79,8 @@ public sealed class UsersController : ControllerBase
             CreatedAt = DateTime.UtcNow,
         };
 
-        this.database.Users.Add(newUser);
-        await this.database.SaveChangesAsync();
+        this.userRepository.Add(newUser);
+        await this.userRepository.SaveAsync();
 
         return this.CreatedAtAction(nameof(this.GetMeow), new { id = newUser.PublicId }, ToResponse(newUser));
     }
@@ -95,8 +91,7 @@ public sealed class UsersController : ControllerBase
         [FromBody]
         UpdateUserRequest request)
     {
-        var user = await this.database.Users
-            .FirstOrDefaultAsync(user => string.Equals(user.PublicId, id, StringComparison.Ordinal));
+        var user = await this.userRepository.FindByPublicIdAsync(id);
 
         if (user is null)
         {
@@ -110,9 +105,7 @@ public sealed class UsersController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(request.Email))
         {
-            var isEmailTaken = await this.database.Users
-                .AnyAsync(other => string.Equals(other.Email, request.Email, StringComparison.OrdinalIgnoreCase)
-                                && !string.Equals(other.PublicId, id, StringComparison.Ordinal));
+            var isEmailTaken = await this.userRepository.IsEmailTakenAsync(request.Email, excludePublicId: id);
 
             if (isEmailTaken)
             {
@@ -122,7 +115,7 @@ public sealed class UsersController : ControllerBase
             user.Email = request.Email.Trim();
         }
 
-        await this.database.SaveChangesAsync();
+        await this.userRepository.SaveAsync();
 
         return this.Ok(ToResponse(user));
     }
@@ -130,16 +123,15 @@ public sealed class UsersController : ControllerBase
     [HttpDelete("{id}/meow")]
     public async Task<IActionResult> DeleteMeow(string id)
     {
-        var user = await this.database.Users
-            .FirstOrDefaultAsync(user => string.Equals(user.PublicId, id, StringComparison.Ordinal));
+        var user = await this.userRepository.FindByPublicIdAsync(id);
 
         if (user is null)
         {
             return this.NotFound(new { error = Constants.ErrorMessage.UserNotFound });
         }
 
-        this.database.Users.Remove(user);
-        await this.database.SaveChangesAsync();
+        this.userRepository.Remove(user);
+        await this.userRepository.SaveAsync();
 
         return this.NoContent();
     }

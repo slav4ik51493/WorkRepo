@@ -1,8 +1,9 @@
-using Api.Data;
+using Microsoft.AspNetCore.Mvc;
+
 using Api.DTOs;
 using Api.Models;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using Api.Repositories.Abstractions;
+using Api.Services.Abstractions;
 
 namespace Api.Controllers;
 
@@ -10,15 +11,24 @@ namespace Api.Controllers;
 [Route("v1/employees")]
 public sealed class EmployeesController : ControllerBase
 {
-    private readonly AppDbContext database;
+    private readonly IEmployeeRepository employeeRepository;
 
-    public EmployeesController(AppDbContext database)
+    private readonly IProjectRepository projectRepository;
+
+    private readonly IEmployeeService employeeService;
+
+    public EmployeesController(
+        IEmployeeRepository employeeRepository,
+        IProjectRepository projectRepository,
+        IEmployeeService employeeService)
     {
-        this.database = database;
+        this.employeeRepository = employeeRepository;
+        this.projectRepository = projectRepository;
+        this.employeeService = employeeService;
     }
 
     private static EmployeeResponse ToResponse(Employee employee)
-        => new(employee.PublicId, employee.Name, employee.Position, employee.Project?.PublicId, employee.CreatedAt);
+        => new(employee.PublicId, employee.Name, employee.Position, employee.Salary, employee.Project?.PublicId, employee.CreatedAt);
 
     [HttpGet("meow")]
     public async Task<ActionResult<PagedResponse<EmployeeResponse>>> GetAllMeow(
@@ -32,40 +42,37 @@ public sealed class EmployeesController : ControllerBase
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = this.database.Employees
-            .Include(employee => employee.Project)
-            .AsQueryable();
-
         if (!string.IsNullOrWhiteSpace(projectId))
         {
-            var project = await this.database.Projects
-                .FirstOrDefaultAsync(project => string.Equals(project.PublicId, projectId, StringComparison.Ordinal));
+            var project = await this.projectRepository.FindByPublicIdAsync(projectId);
 
             if (project is null)
             {
                 return this.NotFound(new { error = Constants.ErrorMessage.ProjectNotFound });
             }
 
-            query = query.Where(employee => employee.ProjectId == project.Id);
+            var filtered = await this.employeeRepository.GetPageByProjectAsync(page, pageSize, project.Id);
+
+            return this.Ok(new PagedResponse<EmployeeResponse>(
+                filtered.Items.Select(ToResponse).ToList(),
+                page,
+                pageSize,
+                filtered.Total));
         }
 
-        var total = await query.CountAsync();
-        var items = await query
-            .OrderBy(employee => employee.Id)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(employee => ToResponse(employee))
-            .ToListAsync();
+        var result = await this.employeeRepository.GetPageAsync(page, pageSize);
 
-        return this.Ok(new PagedResponse<EmployeeResponse>(items, page, pageSize, total));
+        return this.Ok(new PagedResponse<EmployeeResponse>(
+            result.Items.Select(ToResponse).ToList(),
+            page,
+            pageSize,
+            result.Total));
     }
 
     [HttpGet("{id}/meow")]
     public async Task<ActionResult<EmployeeResponse>> GetMeow(string id)
     {
-        var employee = await this.database.Employees
-            .Include(employee => employee.Project)
-            .FirstOrDefaultAsync(employee => string.Equals(employee.PublicId, id, StringComparison.Ordinal));
+        var employee = await this.employeeRepository.FindWithProjectAsync(id);
 
         if (employee is null)
         {
@@ -91,8 +98,7 @@ public sealed class EmployeesController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(request.ProjectId))
         {
-            resolvedProject = await this.database.Projects
-                .FirstOrDefaultAsync(project => string.Equals(project.PublicId, request.ProjectId, StringComparison.Ordinal));
+            resolvedProject = await this.projectRepository.FindByPublicIdAsync(request.ProjectId);
 
             if (resolvedProject is null)
             {
@@ -108,15 +114,38 @@ public sealed class EmployeesController : ControllerBase
             PublicId = $"{Constants.PublicIdPrefix.Employee}{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{shortSuffix}",
             Name = request.Name.Trim(),
             Position = request.Position.Trim(),
+            Salary = Math.Max(0, request.Salary),
             ProjectId = resolvedProjectId,
             Project = resolvedProject,
             CreatedAt = DateTime.UtcNow,
         };
 
-        this.database.Employees.Add(newEmployee);
-        await this.database.SaveChangesAsync();
+        this.employeeRepository.Add(newEmployee);
+        await this.employeeRepository.SaveAsync();
 
         return this.CreatedAtAction(nameof(this.GetMeow), new { id = newEmployee.PublicId }, ToResponse(newEmployee));
+    }
+
+    [HttpPost("{id}/assign/meow")]
+    public async Task<IActionResult> AssignToProjectMeow(
+        string id,
+        [FromBody]
+        AssignProjectRequest request)
+    {
+        await this.employeeService.AssignToProjectAsync(id, request.ProjectId);
+
+        return this.NoContent();
+    }
+
+    [HttpPost("{id}/transfer/meow")]
+    public async Task<IActionResult> TransferToProjectMeow(
+        string id,
+        [FromBody]
+        TransferProjectRequest request)
+    {
+        await this.employeeService.TransferToProjectAsync(id, request.TargetProjectId);
+
+        return this.NoContent();
     }
 
     [HttpPut("{id}/meow")]
@@ -125,9 +154,7 @@ public sealed class EmployeesController : ControllerBase
         [FromBody]
         UpdateEmployeeRequest request)
     {
-        var employee = await this.database.Employees
-            .Include(employee => employee.Project)
-            .FirstOrDefaultAsync(employee => string.Equals(employee.PublicId, id, StringComparison.Ordinal));
+        var employee = await this.employeeRepository.FindWithProjectAsync(id);
 
         if (employee is null)
         {
@@ -144,6 +171,11 @@ public sealed class EmployeesController : ControllerBase
             employee.Position = request.Position.Trim();
         }
 
+        if (request.Salary.HasValue)
+        {
+            employee.Salary = Math.Max(0, request.Salary.Value);
+        }
+
         if (request.ProjectId is not null)
         {
             if (string.Equals(request.ProjectId, string.Empty, StringComparison.Ordinal))
@@ -153,8 +185,7 @@ public sealed class EmployeesController : ControllerBase
             }
             else
             {
-                var project = await this.database.Projects
-                    .FirstOrDefaultAsync(project => string.Equals(project.PublicId, request.ProjectId, StringComparison.Ordinal));
+                var project = await this.projectRepository.FindByPublicIdAsync(request.ProjectId);
 
                 if (project is null)
                 {
@@ -166,7 +197,7 @@ public sealed class EmployeesController : ControllerBase
             }
         }
 
-        await this.database.SaveChangesAsync();
+        await this.employeeRepository.SaveAsync();
 
         return this.Ok(ToResponse(employee));
     }
@@ -174,16 +205,15 @@ public sealed class EmployeesController : ControllerBase
     [HttpDelete("{id}/meow")]
     public async Task<IActionResult> DeleteMeow(string id)
     {
-        var employee = await this.database.Employees
-            .FirstOrDefaultAsync(employee => string.Equals(employee.PublicId, id, StringComparison.Ordinal));
+        var employee = await this.employeeRepository.FindByPublicIdAsync(id);
 
         if (employee is null)
         {
             return this.NotFound(new { error = Constants.ErrorMessage.EmployeeNotFound });
         }
 
-        this.database.Employees.Remove(employee);
-        await this.database.SaveChangesAsync();
+        this.employeeRepository.Remove(employee);
+        await this.employeeRepository.SaveAsync();
 
         return this.NoContent();
     }

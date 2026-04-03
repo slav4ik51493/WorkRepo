@@ -26,5 +26,11 @@ internal static class Constants
         internal const string NameRequired = "name is required";
 
         internal const string NameAndPositionRequired = "name and position are required";
+
+        internal const string ProjectAlreadyArchived = "Project is already archived";
+
+        internal const string EmployeeNotAssigned = "Employee is not assigned to any project";
+
+        internal const string EmployeeAlreadyOnProject = "Employee is already assigned to this project";
     }
 }

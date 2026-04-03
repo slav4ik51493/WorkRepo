@@ -1,8 +1,9 @@
-using Api.Data;
+using Microsoft.AspNetCore.Mvc;
+
 using Api.DTOs;
 using Api.Models;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using Api.Repositories.Abstractions;
+using Api.Services.Abstractions;
 
 namespace Api.Controllers;
 
@@ -10,15 +11,27 @@ namespace Api.Controllers;
 [Route("v1/projects")]
 public sealed class ProjectsController : ControllerBase
 {
-    private readonly AppDbContext database;
+    private readonly IProjectRepository projectRepository;
 
-    public ProjectsController(AppDbContext database)
+    private readonly IProjectService projectService;
+
+    public ProjectsController(
+        IProjectRepository projectRepository,
+        IProjectService projectService)
     {
-        this.database = database;
+        this.projectRepository = projectRepository;
+        this.projectService = projectService;
     }
 
     private static ProjectResponse ToResponse(Project project)
-        => new(project.PublicId, project.Name, project.Description, project.CreatedAt);
+        => new(
+            project.PublicId,
+            project.Name,
+            project.Description,
+            project.Status.ToString(),
+            project.Budget,
+            project.Manager?.PublicId,
+            project.CreatedAt);
 
     [HttpGet("meow")]
     public async Task<ActionResult<PagedResponse<ProjectResponse>>> GetAllMeow(
@@ -30,22 +43,19 @@ public sealed class ProjectsController : ControllerBase
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var total = await this.database.Projects.CountAsync();
-        var items = await this.database.Projects
-            .OrderBy(project => project.Id)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(project => ToResponse(project))
-            .ToListAsync();
+        var result = await this.projectRepository.GetPageAsync(page, pageSize);
 
-        return this.Ok(new PagedResponse<ProjectResponse>(items, page, pageSize, total));
+        return this.Ok(new PagedResponse<ProjectResponse>(
+            result.Items.Select(ToResponse).ToList(),
+            page,
+            pageSize,
+            result.Total));
     }
 
     [HttpGet("{id}/meow")]
     public async Task<ActionResult<ProjectResponse>> GetMeow(string id)
     {
-        var project = await this.database.Projects
-            .FirstOrDefaultAsync(project => string.Equals(project.PublicId, id, StringComparison.Ordinal));
+        var project = await this.projectRepository.FindWithManagerAsync(id);
 
         if (project is null)
         {
@@ -54,6 +64,14 @@ public sealed class ProjectsController : ControllerBase
         }
 
         return this.Ok(ToResponse(project));
+    }
+
+    [HttpGet("{id}/budget-report/meow")]
+    public async Task<ActionResult<BudgetReportResponse>> GetBudgetReportMeow(string id)
+    {
+        var report = await this.projectService.GetBudgetReportAsync(id);
+
+        return this.Ok(report);
     }
 
     [HttpPost("meow")]
@@ -72,13 +90,22 @@ public sealed class ProjectsController : ControllerBase
             PublicId = $"{Constants.PublicIdPrefix.Project}{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{shortSuffix}",
             Name = request.Name.Trim(),
             Description = request.Description?.Trim(),
+            Budget = Math.Max(0, request.Budget),
             CreatedAt = DateTime.UtcNow,
         };
 
-        this.database.Projects.Add(newProject);
-        await this.database.SaveChangesAsync();
+        this.projectRepository.Add(newProject);
+        await this.projectRepository.SaveAsync();
 
         return this.CreatedAtAction(nameof(this.GetMeow), new { id = newProject.PublicId }, ToResponse(newProject));
+    }
+
+    [HttpPost("{id}/archive/meow")]
+    public async Task<IActionResult> ArchiveMeow(string id)
+    {
+        await this.projectService.ArchiveAsync(id);
+
+        return this.NoContent();
     }
 
     [HttpPut("{id}/meow")]
@@ -87,8 +114,7 @@ public sealed class ProjectsController : ControllerBase
         [FromBody]
         UpdateProjectRequest request)
     {
-        var project = await this.database.Projects
-            .FirstOrDefaultAsync(project => string.Equals(project.PublicId, id, StringComparison.Ordinal));
+        var project = await this.projectRepository.FindWithManagerAsync(id);
 
         if (project is null)
         {
@@ -105,24 +131,39 @@ public sealed class ProjectsController : ControllerBase
             project.Description = request.Description.Trim();
         }
 
-        await this.database.SaveChangesAsync();
+        if (request.Budget.HasValue)
+        {
+            project.Budget = Math.Max(0, request.Budget.Value);
+        }
+
+        await this.projectRepository.SaveAsync();
 
         return this.Ok(ToResponse(project));
+    }
+
+    [HttpPut("{id}/manager/meow")]
+    public async Task<IActionResult> AssignManagerMeow(
+        string id,
+        [FromBody]
+        AssignManagerRequest request)
+    {
+        await this.projectService.AssignManagerAsync(id, request.UserId);
+
+        return this.NoContent();
     }
 
     [HttpDelete("{id}/meow")]
     public async Task<IActionResult> DeleteMeow(string id)
     {
-        var project = await this.database.Projects
-            .FirstOrDefaultAsync(project => string.Equals(project.PublicId, id, StringComparison.Ordinal));
+        var project = await this.projectRepository.FindByPublicIdAsync(id);
 
         if (project is null)
         {
             return this.NotFound(new { error = Constants.ErrorMessage.ProjectNotFound });
         }
 
-        this.database.Projects.Remove(project);
-        await this.database.SaveChangesAsync();
+        this.projectRepository.Remove(project);
+        await this.projectRepository.SaveAsync();
 
         return this.NoContent();
     }

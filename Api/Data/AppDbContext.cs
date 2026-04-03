@@ -1,5 +1,6 @@
-using Api.Models;
 using Microsoft.EntityFrameworkCore;
+
+using Api.Models;
 
 namespace Api.Data;
 
@@ -27,6 +28,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<Project>()
             .HasIndex(project => project.PublicId)
             .IsUnique();
+
+        modelBuilder.Entity<Project>()
+            .HasOne(project => project.Manager)
+            .WithMany()
+            .HasForeignKey(project => project.ManagerId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         modelBuilder.Entity<Employee>()
             .HasIndex(employee => employee.PublicId)

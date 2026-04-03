@@ -1,14 +1,10 @@
+using Api.Models.Base;
+
 namespace Api.Models;
 
-public sealed class User
+public sealed class User : BaseEntity
 {
-    public int Id { get; set; }
-
-    public string PublicId { get; set; } = default!;
-
     public string Name { get; set; } = default!;
 
     public string Email { get; set; } = default!;
-
-    public DateTime CreatedAt { get; set; }
 }
