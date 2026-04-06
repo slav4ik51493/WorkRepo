@@ -4,9 +4,6 @@
 [submodule ".claude/skills/write-unit-test"]
 	path = .claude/skills/write-unit-test
 	url = https://github.com/slav4ik51493/write-unit-test.git
-[submodule ".claude/rules/commit-message-rules"]
-	path = .claude/rules/commit-message-rules
-	url = https://github.com/slav4ik51493/commit-message-rules.git
-[submodule ".claude/rules/api-design-rules"]
-	path = .claude/rules/api-design-rules
-	url = https://github.com/slav4ik51493/api-design-rules.git
+[submodule ".claude/rules/base-rules"]
+	path = .claude/rules/base-rules
+	url = https://github.com/slav4ik51493/claude-base-rules.git
