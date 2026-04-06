@@ -9,6 +9,8 @@ internal static class Constants
         internal const string Project = "prj_";
 
         internal const string Employee = "emp_";
+
+        internal const string SalaryPayment = "pay_";
     }
 
     internal static class ErrorMessage
@@ -32,5 +34,9 @@ internal static class Constants
         internal const string EmployeeNotAssigned = "Employee is not assigned to any project";
 
         internal const string EmployeeAlreadyOnProject = "Employee is already assigned to this project";
+
+        internal const string SalaryPaymentNotFound = "Salary payment not found";
+
+        internal const string EmployeeIdRequired = "Employee id is required";
     }
 }

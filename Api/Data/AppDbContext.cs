@@ -15,6 +15,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Employee> Employees
         => this.Set<Employee>();
 
+    public DbSet<SalaryPayment> SalaryPayments
+        => this.Set<SalaryPayment>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>()
@@ -44,5 +47,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .WithMany(project => project.Employees)
             .HasForeignKey(employee => employee.ProjectId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<SalaryPayment>()
+            .HasIndex(payment => payment.PublicId)
+            .IsUnique();
+
+        modelBuilder.Entity<SalaryPayment>()
+            .HasOne(payment => payment.Employee)
+            .WithMany()
+            .HasForeignKey(payment => payment.EmployeeId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
